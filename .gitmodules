@@ -1,0 +1,3 @@
+[submodule "SerialLoops"]
+	path = SerialLoops
+	url = https://github.com/haroohie-club/SerialLoops.git
