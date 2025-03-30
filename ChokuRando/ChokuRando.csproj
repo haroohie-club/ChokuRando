@@ -3,8 +3,17 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net8.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
+        <ImplicitUsings>disable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\SerialLoops\src\SerialLoops.Lib\SerialLoops.Lib.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Mono.Options" Version="6.12.0.148" />
+      <PackageReference Include="ShuffleList" Version="1.0.0" />
+    </ItemGroup>
 
 </Project>

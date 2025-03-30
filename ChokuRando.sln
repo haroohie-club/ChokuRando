@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChokuRando", "ChokuRando\ChokuRando.csproj", "{F8BA110C-32C5-49B1-8ED6-7D4F545F32E7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SerialLoops.Lib", "SerialLoops\src\SerialLoops.Lib\SerialLoops.Lib.csproj", "{8E1EABBB-5D7B-4A4D-AD5B-77013D971D1B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{F8BA110C-32C5-49B1-8ED6-7D4F545F32E7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F8BA110C-32C5-49B1-8ED6-7D4F545F32E7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F8BA110C-32C5-49B1-8ED6-7D4F545F32E7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E1EABBB-5D7B-4A4D-AD5B-77013D971D1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E1EABBB-5D7B-4A4D-AD5B-77013D971D1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E1EABBB-5D7B-4A4D-AD5B-77013D971D1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E1EABBB-5D7B-4A4D-AD5B-77013D971D1B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
