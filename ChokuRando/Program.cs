@@ -364,7 +364,8 @@ class Program
             for (int i = 0; i < puzzleItems.Count; i++)
             {
                 TopicItem[] mainTopics = topicItems.Where(t =>
-                    t is not null && t.TopicEntry.Type == TopicType.Main && t.TopicEntry.PuzzlePhaseGroup == i).ToArray();
+                    t is not null && t.TopicEntry.Type == TopicType.Main && t.TopicEntry.PuzzlePhaseGroup == i)
+                    .DistinctBy(t => t.DisplayName).ToArray();
                 int t = 0;
                 for (int j = 0; j < puzzleItems[i].Puzzle.AssociatedTopics.Count && t < mainTopics.Length; j++)
                 {
