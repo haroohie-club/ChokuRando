@@ -57,7 +57,7 @@ jobs:
       - name: Download Windows zip
         uses: actions/download-artifact@v4.1.8
         with:
-          name: windows-x64-zip
+          name: win-x64-zip
       - name: Move and rename artifacts
         shell: pwsh
         run: |
