@@ -9,6 +9,7 @@ using HaruhiChokuretsuLib.Archive.Event;
 using HaruhiChokuretsuLib.Util;
 using ListRandomizer;
 using Mono.Options;
+using ReactiveUI;
 using SerialLoops.Lib;
 using SerialLoops.Lib.Items;
 using SerialLoops.Lib.Script;
@@ -239,87 +240,147 @@ class Program
             }
         }
         
-        // Topic items are needed by the puzzle randomization even if we don't randomize topics
         List<ScriptItem> scriptItems = project.Items
             .Where(i => i.Type == ItemDescription.ItemType.Script && !i.Name.StartsWith("CHS_")).Cast<ScriptItem>().ToList();
         var commandDict = scriptItems.Select(s => (s, s.GetScriptCommandTree(project, log)))
             .ToDictionary(s => s.s, s => s.Item2);
-        List<(ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> GetTopicCommands)> scriptCmdTopics =
-            commandDict.SelectMany(s => s.Value.Select(sec =>
-                (s.Key, sec.Key, sec.Value.Where(c => c.Verb == EventFile.CommandVerb.TOPIC_GET).ToList()))).ToList();
-        List<TopicItem> topicItems = scriptCmdTopics.SelectMany(s => s.GetTopicCommands.Select(c =>
-            project.Items.FirstOrDefault(i =>
-                i.Type == ItemDescription.ItemType.Topic && ((TopicItem)i).TopicEntry.Id ==
-                ((TopicScriptParameter)c.Parameters[0]).TopicId)).Cast<TopicItem>()).ToList();
+        List<PuzzleItem> puzzleItems = project.Items.Where(i => i.Type == ItemDescription.ItemType.Puzzle &&
+                                                                i.GetReferencesTo(project).Count != 0 && !i.Name.Contains("SLG01"))
+            .Cast<PuzzleItem>().ToList();
         if (topics)
         {
             Console.WriteLine("Randomizing topics...");
-
+            
+            List<(ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> GetTopicCommands)> scriptCmdTopics =
+                commandDict.SelectMany(s => s.Value.Select(sec =>
+                    (s.Key, sec.Key, sec.Value.Where(c => c.Verb == EventFile.CommandVerb.TOPIC_GET).ToList()))).ToList();
+            List<TopicItem> nonMainTopics = project.Items.Where(i =>
+                i.Type == ItemDescription.ItemType.Topic && ((TopicItem)i)?.TopicEntry.Type != TopicType.Main).Cast<TopicItem>().ToList();
+            List<TopicItem> mainTopics = project.Items.Where(i =>
+                i.Type == ItemDescription.ItemType.Topic && ((TopicItem)i)?.TopicEntry.Type == TopicType.Main
+                && !i.Name.Contains("30")).Cast<TopicItem>().ToList();
             List<int> episodeIndices = project.Scenario.Commands
                 .Where(c => c.Verb == ScenarioCommand.ScenarioVerb.NEW_GAME)
                 .Select(c => project.Scenario.Commands.IndexOf(c)).ToList();
             List<int> puzzleIndices = project.Scenario.Commands
                 .Where(c => c.Verb == ScenarioCommand.ScenarioVerb.PUZZLE_PHASE)
                 .Select(c => project.Scenario.Commands.IndexOf(c)).ToList();
-            topicItems.Shuffle();
-            int t = 0;
-            foreach (var entry in scriptCmdTopics)
+
+            HashSet<ScriptItem> randomizedScripts = [];
+            List<TopicItem> randoTopics = new(nonMainTopics);
+            randoTopics.Shuffle();
+
+            int rt = 0;
+            foreach (TopicItem topic in nonMainTopics)
             {
-                int offset = 0;
-                foreach (ScriptItemCommand getTopicCmd in entry.GetTopicCommands)
+                List<(ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> Commands)> entriesWithThisTopic = scriptCmdTopics.Where(e => e.GetTopicCommands
+                    .Any(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id))
+                    .Select(e => (e.Script, e.Section, e.GetTopicCommands
+                        .Where(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id).ToList())).ToList();
+                foreach (var entry in entriesWithThisTopic)
                 {
-                    int groupSelection = ((GroupSelectionItem?)project.Items.FirstOrDefault(i =>
-                        i.Type == ItemDescription.ItemType.Group_Selection
-                        && ((GroupSelectionItem)i).Selection.Activities.Where(a => a is not null).Select(a => a.Routes)
-                        .Any(rs => rs.Any(r => r.ScriptIndex == entry.Script.Event.Index))))?.Index ?? 0;
-                    int scriptScenarioIdx = groupSelection < 1 ?
-                        project.Scenario.Commands.FindIndex(c =>
-                        c.Verb == ScenarioCommand.ScenarioVerb.LOAD_SCENE && c.Parameter == entry.Script.Event.Index)
-                        : project.Scenario.Commands.FindIndex(c => c.Verb == ScenarioCommand.ScenarioVerb.ROUTE_SELECT
-                        && c.Parameter == groupSelection);
-                    if (scriptScenarioIdx < 0)
+                    foreach (ScriptItemCommand getTopicCommand in entry.Commands)
                     {
-                        continue;
+                        entry.Script.Event.ScriptSections[entry.Script.Event.ScriptSections.IndexOf(entry.Section)]
+                            .Objects[getTopicCommand.Index].Parameters[0] = randoTopics[rt].TopicEntry.Id;
                     }
-                    if (topicItems[t] is null)
-                    {
-                        t++;
-                        continue;
-                    }
-                    topicItems[t].TopicEntry.EpisodeGroup = (byte)(episodeIndices.FindLastIndex(e => e < scriptScenarioIdx) + 1);
-                    topicItems[t].TopicEntry.PuzzlePhaseGroup = (byte)(puzzleIndices.FindIndex(e => e > scriptScenarioIdx));
-                    entry.Script.Event.ScriptSections[entry.Script.Event.ScriptSections.IndexOf(entry.Section)]
-                        .Objects[getTopicCmd.Index + offset].Parameters[0] = topicItems[t++].TopicEntry.Id;
-                    // entry.Script.Event.ScriptSections[entry.Script.Event.ScriptSections.IndexOf(entry.Section)]
-                    //     .Objects.Insert(getTopicCmd.Index + offset + 1, new(new()
-                    //     {
-                    //         CommandId = (int)EventFile.CommandVerb.DIALOGUE,
-                    //         Mnemonic = EventFile.CommandVerb.DIALOGUE.ToString(),
-                    //         Parameters = new string[12],
-                    //     }));
-                    // entry.Script.Event.ScriptSections[entry.Script.Event.ScriptSections.IndexOf(entry.Section)]
-                    //         .Objects[getTopicCmd.Index + offset++ + 1].Parameters =
-                    //     [
-                    //         (short)entry.Script.Event.DialogueSection.Objects.Count,
-                    //         ..new short[5],
-                    //         24, 24,
-                    //         ..new short[8],
-                    //     ];
-                    // entry.Script.Event.DialogueSection.Objects.Add(new(Speaker.INFO, "インフォ", 1, 1, entry.Script.Event.Data.ToArray()));
+
+                    randomizedScripts.Add(entry.Script);
                 }
 
-                if (entry.GetTopicCommands.Count > 0)
+                rt++;
+            }
+            foreach (TopicItem topic in randoTopics)
+            {
+                (ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> Commands) entry = scriptCmdTopics.Where(e => e.GetTopicCommands
+                        .Any(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id))
+                    .Select(e => (e.Script, e.Section, e.GetTopicCommands
+                        .Where(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id).ToList())).First();
+                
+                int groupSelection = ((GroupSelectionItem?)project.Items.FirstOrDefault(i =>
+                    i.Type == ItemDescription.ItemType.Group_Selection
+                    && ((GroupSelectionItem)i).Selection.Activities.Where(a => a is not null).Select(a => a.Routes)
+                    .Any(rs => rs.Any(r => r.ScriptIndex == entry.Script.Event.Index))))?.Index ?? 0;
+                int scriptScenarioIdx = groupSelection < 1 ?
+                    project.Scenario.Commands.FindIndex(c =>
+                        c.Verb == ScenarioCommand.ScenarioVerb.LOAD_SCENE && c.Parameter == entry.Script.Event.Index)
+                    : project.Scenario.Commands.FindIndex(c => c.Verb == ScenarioCommand.ScenarioVerb.ROUTE_SELECT
+                                                               && c.Parameter == groupSelection);
+                topic.TopicEntry.EpisodeGroup = (byte)(episodeIndices.FindLastIndex(e => e < scriptScenarioIdx) + 1);
+                topic.TopicEntry.PuzzlePhaseGroup = (byte)puzzleIndices.FindIndex(e => e > scriptScenarioIdx);
+            }
+            
+            List<TopicItem> randoMains = new(mainTopics);
+            randoMains.Shuffle();
+
+            rt = 0;
+            foreach (TopicItem topic in mainTopics)
+            {
+                List<(ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> Commands)> entriesWithThisTopic = scriptCmdTopics.Where(e => e.GetTopicCommands
+                        .Any(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id))
+                    .Select(e => (e.Script, e.Section, e.GetTopicCommands
+                        .Where(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id).ToList())).ToList();
+                // bool calculatedEpisode = false;
+                foreach (var entry in entriesWithThisTopic)
                 {
-                    SerialLoops.Lib.IO.WriteStringFile(Path.Combine("assets", "events", $"{entry.Script.Event.Index:X3}.s"), entry.Script.Event.GetSource(includes), project, log);
+                    foreach (ScriptItemCommand getTopicCommand in entry.Commands)
+                    {
+                        entry.Script.Event.ScriptSections[entry.Script.Event.ScriptSections.IndexOf(entry.Section)]
+                            .Objects[getTopicCommand.Index].Parameters[0] = randoMains[rt].TopicEntry.Id;
+                    }
                 }
+                
+                rt++;
+            }
+            foreach (TopicItem topic in randoMains)
+            {
+                (ScriptItem Script, ScriptSection Section, List<ScriptItemCommand> Commands) entry = scriptCmdTopics.Where(e => e.GetTopicCommands
+                        .Any(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id))
+                    .Select(e => (e.Script, e.Section, e.GetTopicCommands
+                        .Where(c => ((TopicScriptParameter)c.Parameters[0]).TopicId == topic.TopicEntry.Id).ToList())).FirstOrDefault();
+                if (entry.Script is null)
+                {
+                    continue;
+                }
+                
+                int groupSelection = ((GroupSelectionItem?)project.Items.FirstOrDefault(i =>
+                    i.Type == ItemDescription.ItemType.Group_Selection
+                    && ((GroupSelectionItem)i).Selection.Activities.Where(a => a is not null).Select(a => a.Routes)
+                    .Any(rs => rs.Any(r => r.ScriptIndex == entry.Script.Event.Index))))?.Index ?? 0;
+                int scriptScenarioIdx = groupSelection < 1 ?
+                    project.Scenario.Commands.FindIndex(c =>
+                        c.Verb == ScenarioCommand.ScenarioVerb.LOAD_SCENE && c.Parameter == entry.Script.Event.Index)
+                    : project.Scenario.Commands.FindIndex(c => c.Verb == ScenarioCommand.ScenarioVerb.ROUTE_SELECT
+                                                               && c.Parameter == groupSelection);
+                topic.TopicEntry.EpisodeGroup = (byte)(episodeIndices.FindLastIndex(e => e < scriptScenarioIdx) + 1);
+                topic.TopicEntry.PuzzlePhaseGroup = (byte)puzzleIndices.FindIndex(e => e > scriptScenarioIdx);
+            }
+            
+            for (int i = 0; i < puzzleItems.Count; i++)
+            {
+                TopicItem[] epMainTopics = mainTopics.Where(top =>
+                        top is not null && top.TopicEntry.PuzzlePhaseGroup == i + 1)
+                    .DistinctBy(top => top.DisplayName).ToArray();
+                int t = 0;
+                for (int j = 0; j < puzzleItems[i].Puzzle.AssociatedTopics.Count && t < epMainTopics.Length; j++)
+                {
+                    puzzleItems[i].Puzzle.AssociatedTopics[j] = new(epMainTopics[t++].TopicEntry.Id, puzzleItems[i].Puzzle.AssociatedTopics[j].Unknown);
+                    if (!puzzles)
+                    {
+                        SerialLoops.Lib.IO.WriteStringFile(Path.Combine("assets", "data", $"{puzzleItems[i].Puzzle.Index:X3}.s"), puzzleItems[i].Puzzle.GetSource(includes), project, log);
+                    }
+                }
+            }
+            
+            foreach (ScriptItem script in randomizedScripts)
+            {
+                SerialLoops.Lib.IO.WriteStringFile(Path.Combine("assets", "events", $"{script.Event.Index:X3}.s"), script.Event.GetSource(includes), project, log);
             }
         }
 
         if (puzzles)
         {
             Console.WriteLine("Randomizing puzzles...");
-            List<PuzzleItem> puzzleItems = project.Items.Where(i => i.Type == ItemDescription.ItemType.Puzzle
-                && i.GetReferencesTo(project).Count != 0).Cast<PuzzleItem>().ToList();
             List<PuzzleItem> randoPuzzles = new(puzzleItems);
             randoPuzzles.Shuffle();
             for (int i = 0; i < puzzleItems.Count; i++)
@@ -345,32 +406,23 @@ class Program
                     puzzleItems[i].Puzzle.Settings.MapId = randoPuzzles[i].Puzzle.Settings.MapId;
                 }
             }
+            randoPuzzles.Shuffle();
             for (int i = 0; i < puzzleItems.Count; i++)
             {
                 puzzleItems[i].Puzzle.Settings.NumSingularities = randoPuzzles[i].Puzzle.Settings.NumSingularities;
             }
+            randoPuzzles.Shuffle();
             for (int i = 0; i < puzzleItems.Count; i++)
             {
                 puzzleItems[i].Puzzle.Settings.TargetNumber = randoPuzzles[i].Puzzle.Settings.TargetNumber;
             }
+            randoPuzzles.Shuffle();
             for (int i = 0; i < puzzleItems.Count; i++)
             {
                 puzzleItems[i].Puzzle.Settings.SingularityTexture = randoPuzzles[i].Puzzle.Settings.SingularityTexture;
                 puzzleItems[i].Puzzle.Settings.SingularityLayout = randoPuzzles[i].Puzzle.Settings.SingularityLayout;
                 puzzleItems[i].Puzzle.Settings.SingularityAnim1 = randoPuzzles[i].Puzzle.Settings.SingularityAnim1;
                 puzzleItems[i].Puzzle.Settings.SingularityAnim2 = randoPuzzles[i].Puzzle.Settings.SingularityAnim2;
-            }
-            
-            for (int i = 0; i < puzzleItems.Count; i++)
-            {
-                TopicItem[] mainTopics = topicItems.Where(t =>
-                    t is not null && t.TopicEntry.Type == TopicType.Main && t.TopicEntry.PuzzlePhaseGroup == i)
-                    .DistinctBy(t => t.DisplayName).ToArray();
-                int t = 0;
-                for (int j = 0; j < puzzleItems[i].Puzzle.AssociatedTopics.Count && t < mainTopics.Length; j++)
-                {
-                    puzzleItems[i].Puzzle.AssociatedTopics[j] = new(mainTopics[t++].TopicEntry.Id, puzzleItems[i].Puzzle.AssociatedTopics[j].Unknown);
-                }
             }
 
             foreach (PuzzleItem puzzle in puzzleItems)
@@ -379,6 +431,12 @@ class Program
             }
         }
 
+        if (scenario)
+        {
+            // Delete first tutorial from the shuffled scenario for convenience since shuffling makes it unskippable
+            project.Scenario.Commands.Remove(
+                project.Scenario.Commands.First(c => c.Verb == ScenarioCommand.ScenarioVerb.PUZZLE_PHASE));
+        }
         if (scenario || groupSelections)
         {
             SerialLoops.Lib.IO.WriteStringFile(
